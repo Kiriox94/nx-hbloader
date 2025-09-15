@@ -4,10 +4,11 @@
 #include <unistd.h>
 
 #define DEFAULT_NRO "sdmc:/hbmenu.nro"
+#define SECOND_NRO "sdmc:/switch/NX-Activity-Log/NX-Activity-Log.nro"
+#define SECOND_NRO_APP_ID_TRIGGER 0x0100000000001013
 
-const char g_noticeText[] =
-    "nx-hbloader " VERSION "\0"
-    "Do you mean to tell me that you're thinking seriously of building that way, when and if you are an architect?";
+const char g_noticeText[] = "nx-hbloader custom by kiriox"
+"\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n never gonna give you up never gonna let you down never gonna run around and desert you never gonna make you cry\nnever gonna say goodbye never gonna tell a lie and hurt you";
 
 static char g_argv[2048];
 static char g_nextArgv[2048];
@@ -16,6 +17,7 @@ u64  g_nroAddr = 0;
 static u64  g_nroSize = 0;
 static NroHeader g_nroHeader;
 static bool g_isApplication = 0;
+static u64 g_curProgId = 0;
 
 static bool g_isAutomaticGameplayRecording = 0;
 static enum {
@@ -207,6 +209,20 @@ static void getIsApplication(void)
     }
 }
 
+// Set g_curProgId to our current process Program ID.
+static void getCurrentProgramId(void)
+{
+    Result rc;
+    u64 cur_progid=0;
+
+    if (hosversionBefore(3,0,0)) return;
+
+    rc = svcGetInfo(&cur_progid, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0);
+    if (R_FAILED(rc)) diagAbortWithResult(rc); // shouldn't happen
+
+    g_curProgId = cur_progid;
+}
+
 // Sets g_isAutomaticGameplayRecording if the current program has automatic gameplay recording enabled in its NACP.
 //Gets the control.nacp for the current program id, and then sets g_isAutomaticGameplayRecording if less memory should be allocated.
 static void getIsAutomaticGameplayRecording(void)
@@ -217,17 +233,12 @@ static void getIsAutomaticGameplayRecording(void)
     if (hosversionBefore(4,0,0) || !g_isApplication)
         return;
 
-    // Retrieve our process' Program ID
-    u64 cur_progid=0;
-    rc = svcGetInfo(&cur_progid, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0);
-    if (R_FAILED(rc)) diagAbortWithResult(rc); // shouldn't happen
-
     // Try reading our NACP
     rc = nsInitialize();
     if (R_SUCCEEDED(rc)) {
         NsApplicationControlData data; // note: this is 144KB, which still fits comfortably within the 1MB of stack we have
         u64 size=0;
-        rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, cur_progid, &data, sizeof(data), &size);
+        rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, g_curProgId, &data, sizeof(data), &size);
         nsExit();
 
         if (R_SUCCEEDED(rc) && data.nacp.video_capture == 2)
@@ -353,8 +364,13 @@ void loadNro(void)
 
     if (g_nextNroPath[0] == '\0')
     {
-        memcpy(g_nextNroPath, DEFAULT_NRO, sizeof(DEFAULT_NRO));
-        memcpy(g_nextArgv,    DEFAULT_NRO, sizeof(DEFAULT_NRO));
+        if (g_curProgId == SECOND_NRO_APP_ID_TRIGGER) {
+            memcpy(g_nextNroPath, SECOND_NRO, sizeof(SECOND_NRO));
+            memcpy(g_nextArgv,    SECOND_NRO, sizeof(SECOND_NRO));
+        }else {
+            memcpy(g_nextNroPath, DEFAULT_NRO, sizeof(DEFAULT_NRO));
+            memcpy(g_nextArgv,    DEFAULT_NRO, sizeof(DEFAULT_NRO));
+        }
     }
 
     memcpy(g_argv, g_nextArgv, sizeof g_argv);
@@ -520,6 +536,7 @@ int main(int argc, char **argv)
     memcpy(g_savedTls, (u8*)armGetTls() + 0x100, 0x100);
 
     getIsApplication();
+    getCurrentProgramId();
     getIsAutomaticGameplayRecording();
     smExit(); // Close SM as we don't need it anymore.
     setupHbHeap();
